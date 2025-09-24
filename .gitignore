@@ -204,3 +204,7 @@ input/
 .claude
 .idea
 reports/
+
+# Test directories
+test_dir/
+tests/
