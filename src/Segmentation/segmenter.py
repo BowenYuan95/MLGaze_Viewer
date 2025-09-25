@@ -6,10 +6,36 @@ import pandas as pd
 from dataclasses import dataclass
 
 from .data_types import TaskSegmentResult, SegmentationConfig
-from .signal_processing import (
-    ExponentialSmoother, OutlierRejector, InterpolationHelper,
-    calculate_gaze_deviation_degrees
-)
+# Signal processing removed - only keeping gaze deviation calculation inline
+
+
+def calculate_gaze_deviation_degrees(gaze_direction_1: np.ndarray,
+                                   gaze_direction_2: np.ndarray) -> float:
+    """Calculate angle between two gaze direction vectors in degrees.
+
+    Args:
+        gaze_direction_1: First normalized 3D direction vector [x, y, z]
+        gaze_direction_2: Second normalized 3D direction vector [x, y, z]
+
+    Returns:
+        Angle in degrees between the two gaze directions
+    """
+    # Ensure vectors are normalized
+    norm1 = np.linalg.norm(gaze_direction_1)
+    norm2 = np.linalg.norm(gaze_direction_2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0  # Handle zero vectors
+
+    dir1_normalized = gaze_direction_1 / norm1
+    dir2_normalized = gaze_direction_2 / norm2
+
+    # Calculate dot product and clamp to handle numerical errors
+    dot_product = np.clip(np.dot(dir1_normalized, dir2_normalized), -1.0, 1.0)
+
+    # Calculate angle in radians then convert to degrees
+    angle_radians = np.arccos(dot_product)
+    return np.degrees(angle_radians)
 
 
 class TaskSegmenter:
@@ -22,12 +48,6 @@ class TaskSegmenter:
             config: Configuration parameters for segmentation
         """
         self.config = config
-        self.smoother = ExponentialSmoother(alpha=config.head_filter_alpha)
-        self.outlier_rejector = OutlierRejector(
-            displacement_threshold_m=config.outlier_displacement_threshold_m,
-            time_window_ms=config.outlier_time_window_ms,
-            speed_threshold_ms=config.outlier_speed_threshold_ms
-        )
 
     def segment(self, session_data) -> List[TaskSegmentResult]:
         """Perform task-based segmentation on session data.
@@ -47,37 +67,34 @@ class TaskSegmenter:
         if len(positions) == 0:
             return []
 
-        # Step 3: Apply signal processing
-        positions, timestamps = self._apply_signal_processing(positions, timestamps)
-
-        # Step 4: Extract and process gaze data
+        # Step 3: Extract gaze data (no preprocessing)
         gaze_data = self._process_gaze_data(session_data)
 
-        # Step 5: Extract hand tracking data (if enabled)
+        # Step 4: Extract hand tracking data (if enabled)
         hand_tracking_data = None
         if self.config.require_hand_tracking:
             hand_tracking_data = self._process_hand_tracking_data(session_data)
 
-        # Step 6: Apply sliding window stability detection
+        # Step 5: Apply sliding window stability detection
         stable_timestamps = self._apply_sliding_window(
             positions, timestamps, gaze_data, hand_tracking_data, session_data
         )
 
-        # Step 7: Create candidate segments from stable periods
+        # Step 6: Create candidate segments from stable periods
         candidate_segments = self._create_candidate_segments(
             stable_timestamps, positions, timestamps
         )
 
-        # Step 8: Apply time buffers
+        # Step 7: Apply time buffers
         buffered_segments = self._apply_time_buffers(candidate_segments, session_data)
 
-        # Step 9: Merge consecutive segments
+        # Step 8: Merge consecutive segments
         merged_segments = self._merge_segments(buffered_segments)
 
-        # Step 10: Consolidate locations
+        # Step 9: Consolidate locations
         final_segments = self._consolidate_locations(merged_segments)
 
-        # Step 11: Generate results with proper IDs
+        # Step 10: Generate results with proper IDs
         return self._generate_results(final_segments)
 
     def _validate_session_data(self, session_data) -> bool:
@@ -111,30 +128,9 @@ class TaskSegmenter:
 
         return positions, timestamps
 
-    def _apply_signal_processing(self, positions: np.ndarray, timestamps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Apply smoothing and outlier rejection to position data.
-
-        Returns:
-            Tuple of (processed_positions, filtered_timestamps)
-        """
-        if len(positions) == 0:
-            return positions, timestamps
-
-        # Step 1: Remove outliers
-        outlier_mask = self.outlier_rejector.reject_outliers(positions, timestamps)
-        valid_positions = positions[outlier_mask]
-        valid_timestamps = timestamps[outlier_mask]
-
-        if len(valid_positions) == 0:
-            return np.array([]), np.array([])
-
-        # Step 2: Apply exponential smoothing
-        smoothed_positions = self.smoother.apply_ema(valid_positions)
-
-        return smoothed_positions, valid_timestamps
 
     def _process_gaze_data(self, session_data) -> Optional[pd.DataFrame]:
-        """Process gaze data with filtering and smoothing."""
+        """Extract raw gaze data without preprocessing."""
         if not self.config.require_gaze_stability:
             return None
 
@@ -142,18 +138,6 @@ class TaskSegmenter:
             return None
 
         gaze_df = session_data.gaze.copy()
-
-        # Filter out unwanted gaze states
-        if 'gazeState' in gaze_df.columns:
-            valid_states = ~gaze_df['gazeState'].isin(self.config.filtered_gaze_states)
-            gaze_df = gaze_df[valid_states]
-
-        # Apply exponential moving average to gaze directions
-        if all(col in gaze_df.columns for col in ['dirX', 'dirY', 'dirZ']):
-            gaze_directions = gaze_df[['dirX', 'dirY', 'dirZ']].values
-            if len(gaze_directions) > 0:
-                smoothed_directions = self.smoother.apply_ema(gaze_directions)
-                gaze_df[['dirX', 'dirY', 'dirZ']] = smoothed_directions
 
         return gaze_df
 
