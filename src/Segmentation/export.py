@@ -14,12 +14,14 @@ class SegmentationExporter:
     """Handles exporting TaskSegmentResult data to various formats."""
 
     @staticmethod
-    def to_csv(segments: List[TaskSegmentResult], output_path: Union[str, Path]) -> None:
+    def to_csv(segments: List[TaskSegmentResult], output_path: Union[str, Path],
+               recording_start_timestamp: int = None) -> None:
         """Export segmentation results to CSV format.
 
         Args:
             segments: List of TaskSegmentResult objects
             output_path: Path to output CSV file
+            recording_start_timestamp: Timestamp of recording start in nanoseconds (optional)
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -41,10 +43,20 @@ class SegmentationExporter:
         # Convert segments to rows
         rows = []
         for segment in segments:
+            # Calculate times from recording beginning (in seconds)
+            if recording_start_timestamp is not None:
+                start_time_from_recording_s = (segment.start_timestamp - recording_start_timestamp) / 1e9
+                finish_time_from_recording_s = (segment.finish_timestamp - recording_start_timestamp) / 1e9
+            else:
+                start_time_from_recording_s = segment.start_timestamp / 1e9
+                finish_time_from_recording_s = segment.finish_timestamp / 1e9
+
             row = [
                 segment.segmentation_id,
                 segment.start_timestamp,
                 segment.finish_timestamp,
+                start_time_from_recording_s,
+                finish_time_from_recording_s,
                 segment.duration_ns,
                 segment.duration_s,
                 float(segment.start_location[0]),
@@ -64,8 +76,9 @@ class SegmentationExporter:
 
             # Write header
             writer.writerow([
-                'segmentation_id', 'start_timestamp', 'finish_timestamp', 'duration_ns',
-                'duration_s', 'start_x', 'start_y', 'start_z',
+                'segmentation_id', 'start_timestamp', 'finish_timestamp',
+                'start_time_from_recording_s', 'finish_time_from_recording_s',
+                'duration_ns', 'duration_s', 'start_x', 'start_y', 'start_z',
                 'finish_x', 'finish_y', 'finish_z',
                 'location_distance_m', 'is_location_consolidated'
             ])
@@ -74,12 +87,14 @@ class SegmentationExporter:
             writer.writerows(rows)
 
     @staticmethod
-    def to_json(segments: List[TaskSegmentResult], output_path: Union[str, Path]) -> None:
+    def to_json(segments: List[TaskSegmentResult], output_path: Union[str, Path],
+                recording_start_timestamp: int = None) -> None:
         """Export segmentation results to JSON format.
 
         Args:
             segments: List of TaskSegmentResult objects
             output_path: Path to output JSON file
+            recording_start_timestamp: Timestamp of recording start in nanoseconds (optional)
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,10 +102,20 @@ class SegmentationExporter:
         # Convert segments to serializable format
         segments_data = []
         for segment in segments:
+            # Calculate times from recording beginning (in seconds)
+            if recording_start_timestamp is not None:
+                start_time_from_recording_s = (segment.start_timestamp - recording_start_timestamp) / 1e9
+                finish_time_from_recording_s = (segment.finish_timestamp - recording_start_timestamp) / 1e9
+            else:
+                start_time_from_recording_s = segment.start_timestamp / 1e9
+                finish_time_from_recording_s = segment.finish_timestamp / 1e9
+
             segment_dict = {
                 'segmentation_id': segment.segmentation_id,
                 'start_timestamp': int(segment.start_timestamp),
                 'finish_timestamp': int(segment.finish_timestamp),
+                'start_time_from_recording_s': float(start_time_from_recording_s),
+                'finish_time_from_recording_s': float(finish_time_from_recording_s),
                 'duration_ns': int(segment.duration_ns),
                 'duration_s': float(segment.duration_s),
                 'start_location': {
@@ -235,7 +260,8 @@ class SegmentationExporter:
 def export_task_segments(segments: List[TaskSegmentResult],
                         output_dir: Union[str, Path],
                         formats: List[str] = None,
-                        include_summary: bool = True) -> Dict[str, Path]:
+                        include_summary: bool = True,
+                        recording_start_timestamp: int = None) -> Dict[str, Path]:
     """Convenience function to export segmentation results in multiple formats.
 
     Args:
@@ -243,6 +269,7 @@ def export_task_segments(segments: List[TaskSegmentResult],
         output_dir: Directory to save export files
         formats: List of formats to export ('csv', 'json', 'summary'). Default: all
         include_summary: Whether to include summary export
+        recording_start_timestamp: Timestamp of recording start in nanoseconds (optional)
 
     Returns:
         Dictionary mapping format names to output file paths
@@ -262,12 +289,12 @@ def export_task_segments(segments: List[TaskSegmentResult],
     for format_name in formats:
         if format_name == 'csv':
             output_path = output_dir / 'task_segments.csv'
-            exporter.to_csv(segments, output_path)
+            exporter.to_csv(segments, output_path, recording_start_timestamp)
             exported_files['csv'] = output_path
 
         elif format_name == 'json':
             output_path = output_dir / 'task_segments.json'
-            exporter.to_json(segments, output_path)
+            exporter.to_json(segments, output_path, recording_start_timestamp)
             exported_files['json'] = output_path
 
         elif format_name == 'summary':
