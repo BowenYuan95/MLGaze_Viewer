@@ -130,7 +130,11 @@ class TaskSegmenter:
 
 
     def _process_gaze_data(self, session_data) -> Optional[pd.DataFrame]:
-        """Extract raw gaze data without preprocessing."""
+        """Extract gaze data and filter out unwanted gaze states.
+
+        Filters out gaze states specified in config.filtered_gaze_states
+        (default: ["Blink", "Unknown"])
+        """
         if not self.config.require_gaze_stability:
             return None
 
@@ -138,6 +142,10 @@ class TaskSegmenter:
             return None
 
         gaze_df = session_data.gaze.copy()
+
+        # Filter out unwanted gaze states (Blink, Unknown, etc.)
+        if 'gazeState' in gaze_df.columns and self.config.filtered_gaze_states:
+            gaze_df = gaze_df[~gaze_df['gazeState'].isin(self.config.filtered_gaze_states)]
 
         return gaze_df
 
@@ -154,7 +162,13 @@ class TaskSegmenter:
                             gaze_data: Optional[pd.DataFrame],
                             hand_tracking_data: Optional[pd.DataFrame],
                             session_data) -> List[int]:
-        """Apply sliding window stability detection.
+        """Apply sliding window stability detection with mode switching.
+
+        Supports two modes:
+        - "strict": All samples must be stable (original behavior)
+        - "percentage": Allow configurable percentage of unstable samples
+
+        Falls back to strict mode if window has fewer than min_samples_for_percentage_mode.
 
         Returns:
             List of timestamps that are considered stable
@@ -176,27 +190,61 @@ class TaskSegmenter:
             if len(window_positions) < 2:
                 continue  # Need at least 2 samples for stability check
 
+            # Determine which mode to use
+            use_percentage_mode = (
+                self.config.stability_mode == "percentage" and
+                len(window_positions) >= self.config.min_samples_for_percentage_mode
+            )
+
             # Check all stability criteria within this window
             is_stable = True
 
-            # 1. Spatial stability check
-            if self.config.require_spatial_stability:
-                if not self._check_spatial_stability_in_window(window_positions):
-                    is_stable = False
+            if use_percentage_mode:
+                # PERCENTAGE MODE - allow tolerance for unstable samples
 
-            # 2. Gaze stability check
-            if self.config.require_gaze_stability and gaze_data is not None:
-                if not self._check_gaze_stability_in_window(
-                    window_timestamps, gaze_data, session_data
-                ):
-                    is_stable = False
+                # 1. Spatial stability check
+                if self.config.require_spatial_stability:
+                    head_unstable_pct = self._check_spatial_stability_percentage(window_positions)
+                    if head_unstable_pct > self.config.head_instability_threshold_percent:
+                        is_stable = False
 
-            # 3. Hand tracking check
-            if self.config.require_hand_tracking and hand_tracking_data is not None:
-                if not self._check_hand_tracking_in_window(
-                    window_timestamps, hand_tracking_data
-                ):
-                    is_stable = False
+                # 2. Gaze stability check
+                if self.config.require_gaze_stability and gaze_data is not None:
+                    gaze_unstable_pct = self._check_gaze_stability_percentage(
+                        window_timestamps, gaze_data, session_data
+                    )
+                    if gaze_unstable_pct > self.config.gaze_instability_threshold_percent:
+                        is_stable = False
+
+                # 3. Hand tracking check
+                if self.config.require_hand_tracking and hand_tracking_data is not None:
+                    hand_untracked_pct = self._check_hand_tracking_percentage(
+                        window_timestamps, hand_tracking_data
+                    )
+                    if hand_untracked_pct > self.config.hand_untracked_threshold_percent:
+                        is_stable = False
+
+            else:
+                # STRICT MODE - all samples must be stable (original behavior)
+
+                # 1. Spatial stability check
+                if self.config.require_spatial_stability:
+                    if not self._check_spatial_stability_in_window(window_positions):
+                        is_stable = False
+
+                # 2. Gaze stability check
+                if self.config.require_gaze_stability and gaze_data is not None:
+                    if not self._check_gaze_stability_in_window(
+                        window_timestamps, gaze_data, session_data
+                    ):
+                        is_stable = False
+
+                # 3. Hand tracking check
+                if self.config.require_hand_tracking and hand_tracking_data is not None:
+                    if not self._check_hand_tracking_in_window(
+                        window_timestamps, hand_tracking_data
+                    ):
+                        is_stable = False
 
             if is_stable:
                 stable_timestamps.append(current_timestamp)
@@ -204,14 +252,23 @@ class TaskSegmenter:
         return stable_timestamps
 
     def _check_spatial_stability_in_window(self, window_positions: np.ndarray) -> bool:
-        """Check if all positions in window are within spatial stability radius."""
+        """Check if all positions in window are within spatial stability radius.
+
+        Distance calculation: Only X and Z (horizontal plane), ignoring Y (vertical)
+        """
         if len(window_positions) < 2:
             return False
 
         start_position = window_positions[0]
 
         for position in window_positions[1:]:
-            distance = np.linalg.norm(position - start_position)
+            # Calculate horizontal distance only (X-Z plane, ignore Y)
+            horizontal_diff = np.array([
+                position[0] - start_position[0],  # X
+                position[2] - start_position[2]   # Z
+            ])
+            distance = np.linalg.norm(horizontal_diff)
+
             if distance > self.config.spatial_stability_radius_m:
                 return False
 
@@ -294,6 +351,143 @@ class TaskSegmenter:
                     return False  # No hands tracked at this timestamp
 
         return True
+
+    def _check_spatial_stability_percentage(self, window_positions: np.ndarray) -> float:
+        """Calculate percentage of unstable head positions in window.
+
+        Reference: FIRST position in window (matches current strict mode)
+        Distance calculation: Only X and Z (horizontal plane), ignoring Y (vertical)
+
+        Args:
+            window_positions: Array of 3D positions in window
+
+        Returns:
+            Percentage of positions outside stability radius (0-100)
+        """
+        if len(window_positions) < 2:
+            return 100.0  # Not enough data = 100% unstable
+
+        reference_position = window_positions[0]  # FIRST position
+        unstable_count = 0
+
+        for position in window_positions[1:]:
+            # Calculate horizontal distance only (X-Z plane, ignore Y)
+            horizontal_diff = np.array([
+                position[0] - reference_position[0],  # X
+                position[2] - reference_position[2]   # Z
+            ])
+            distance = np.linalg.norm(horizontal_diff)
+
+            if distance > self.config.spatial_stability_radius_m:
+                unstable_count += 1
+
+        unstable_percentage = (unstable_count / (len(window_positions) - 1)) * 100.0
+        return unstable_percentage
+
+    def _check_gaze_stability_percentage(self,
+                                        window_timestamps: np.ndarray,
+                                        gaze_data: pd.DataFrame,
+                                        session_data) -> float:
+        """Calculate percentage of unstable gaze samples in window.
+
+        Reference: CONSECUTIVE sample pairs (matches current strict mode)
+        Includes both deviation violations AND focus distance violations
+
+        Args:
+            window_timestamps: Timestamps in window
+            gaze_data: Filtered gaze DataFrame (Blink/Unknown already removed)
+            session_data: Session data for camera positions
+
+        Returns:
+            Percentage of unstable gaze samples (0-100)
+        """
+        min_ts, max_ts = window_timestamps[0], window_timestamps[-1]
+        window_gaze = gaze_data[
+            (gaze_data['timestamp'] >= min_ts) &
+            (gaze_data['timestamp'] <= max_ts)
+        ]
+
+        if len(window_gaze) < 2:
+            return 100.0  # Not enough data = 100% unstable
+
+        if not all(col in window_gaze.columns for col in ['dirX', 'dirY', 'dirZ']):
+            return 100.0
+
+        unstable_count = 0
+        total_checks = 0
+
+        # Check gaze deviation between CONSECUTIVE samples
+        directions = window_gaze[['dirX', 'dirY', 'dirZ']].values
+        for i in range(len(directions) - 1):
+            deviation = calculate_gaze_deviation_degrees(
+                directions[i], directions[i + 1]
+            )
+            if deviation > self.config.gaze_deviation_threshold_deg:
+                unstable_count += 1
+            total_checks += 1
+
+        # Check focus distance if required
+        if hasattr(self.config, 'focus_distance_threshold_m'):
+            primary_metadata = session_data.camera_metadata[session_data.primary_camera]
+
+            for _, gaze_row in window_gaze.iterrows():
+                camera_pos = self._get_camera_position_at_timestamp(
+                    gaze_row['timestamp'], primary_metadata
+                )
+
+                if camera_pos is not None:
+                    if all(col in gaze_row for col in ['originX', 'originY', 'originZ']):
+                        gaze_origin = np.array([
+                            gaze_row['originX'], gaze_row['originY'], gaze_row['originZ']
+                        ])
+
+                        focus_distance = np.linalg.norm(gaze_origin - camera_pos)
+
+                        if focus_distance > self.config.focus_distance_threshold_m:
+                            unstable_count += 1
+                        total_checks += 1
+
+        if total_checks == 0:
+            return 100.0
+
+        unstable_percentage = (unstable_count / total_checks) * 100.0
+        return unstable_percentage
+
+    def _check_hand_tracking_percentage(self,
+                                       window_timestamps: np.ndarray,
+                                       hand_tracking_data: pd.DataFrame) -> float:
+        """Calculate percentage of time with NO hand tracking in window.
+
+        Args:
+            window_timestamps: Timestamps in window
+            hand_tracking_data: Hand tracking DataFrame
+
+        Returns:
+            Percentage of timestamps with no tracked hands (0-100)
+        """
+        min_ts, max_ts = window_timestamps[0], window_timestamps[-1]
+
+        window_hands = hand_tracking_data[
+            (hand_tracking_data['timestamp'] >= min_ts) &
+            (hand_tracking_data['timestamp'] <= max_ts)
+        ]
+
+        if window_hands.empty:
+            return 100.0  # No data = 100% untracked
+
+        unique_timestamps = window_hands['timestamp'].unique()
+        untracked_count = 0
+
+        for timestamp in unique_timestamps:
+            timestamp_hands = window_hands[window_hands['timestamp'] == timestamp]
+
+            if 'isTracked' in timestamp_hands.columns:
+                tracked_hands = timestamp_hands[timestamp_hands['isTracked'] == True]
+                if len(tracked_hands) == 0:
+                    untracked_count += 1  # No hands tracked at this timestamp
+
+        untracked_percentage = (untracked_count / len(unique_timestamps)) * 100.0
+        return untracked_percentage
 
     def _get_camera_position_at_timestamp(self,
                                         timestamp: int,
@@ -403,7 +597,11 @@ class TaskSegmenter:
 
     def _merge_segments(self,
                        segments: List[Tuple[int, int, np.ndarray, np.ndarray]]) -> List[Tuple[int, int, np.ndarray, np.ndarray]]:
-        """Merge segments separated by small gaps."""
+        """Merge segments that overlap or touch after time buffering.
+
+        Only merges segments where next_start <= current_end (overlapping/touching).
+        Uses outer boundary positions (first segment's start_pos + last segment's end_pos).
+        """
         if len(segments) <= 1:
             return segments
 
@@ -414,10 +612,9 @@ class TaskSegmenter:
             current_start, current_end, current_start_pos, current_end_pos = current_segment
             next_start, next_end, next_start_pos, next_end_pos = next_segment
 
-            gap_s = (next_start - current_end) / 1e9
-
-            if gap_s <= self.config.merge_consecutive_gap_s:
-                # Merge segments
+            # Only merge if segments overlap or touch
+            if next_start <= current_end:
+                # Merge segments - use outer boundaries for positions
                 current_segment = (current_start, next_end, current_start_pos, next_end_pos)
             else:
                 # Keep current segment and move to next

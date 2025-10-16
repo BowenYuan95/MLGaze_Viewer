@@ -32,7 +32,8 @@ class SegmentationExporter:
                 'segmentation_id', 'start_timestamp', 'finish_timestamp', 'duration_ns',
                 'duration_s', 'start_x', 'start_y', 'start_z',
                 'finish_x', 'finish_y', 'finish_z',
-                'location_distance_m', 'is_location_consolidated'
+                'location_distance_m', 'is_location_consolidated',
+                'dependency_segment_ids', 'edge_costs'
             ]
 
             with open(output_path, 'w', newline='') as csvfile:
@@ -66,7 +67,9 @@ class SegmentationExporter:
                 float(segment.finish_location[1]),
                 float(segment.finish_location[2]),
                 segment.location_distance,
-                segment.is_location_consolidated
+                segment.is_location_consolidated,
+                json.dumps(segment.dependency_segment_ids if segment.dependency_segment_ids else []),
+                json.dumps(segment.edge_costs if segment.edge_costs else {})
             ]
             rows.append(row)
 
@@ -80,7 +83,8 @@ class SegmentationExporter:
                 'start_time_from_recording_s', 'finish_time_from_recording_s',
                 'duration_ns', 'duration_s', 'start_x', 'start_y', 'start_z',
                 'finish_x', 'finish_y', 'finish_z',
-                'location_distance_m', 'is_location_consolidated'
+                'location_distance_m', 'is_location_consolidated',
+                'dependency_segment_ids', 'edge_costs'
             ])
 
             # Write data rows
@@ -129,7 +133,9 @@ class SegmentationExporter:
                     'z': float(segment.finish_location[2])
                 },
                 'location_distance_m': float(segment.location_distance),
-                'is_location_consolidated': bool(segment.is_location_consolidated)
+                'is_location_consolidated': bool(segment.is_location_consolidated),
+                'dependency_segment_ids': segment.dependency_segment_ids if segment.dependency_segment_ids else [],
+                'edge_costs': segment.edge_costs if segment.edge_costs else {}
             }
             segments_data.append(segment_dict)
 
@@ -166,7 +172,8 @@ class SegmentationExporter:
                 'segmentation_id', 'start_timestamp', 'finish_timestamp', 'duration_ns',
                 'duration_s', 'start_x', 'start_y', 'start_z',
                 'finish_x', 'finish_y', 'finish_z',
-                'location_distance_m', 'is_location_consolidated'
+                'location_distance_m', 'is_location_consolidated',
+                'dependency_segment_ids', 'edge_costs'
             ])
 
         # Convert to list of dictionaries
@@ -185,7 +192,9 @@ class SegmentationExporter:
                 'finish_y': float(segment.finish_location[1]),
                 'finish_z': float(segment.finish_location[2]),
                 'location_distance_m': segment.location_distance,
-                'is_location_consolidated': segment.is_location_consolidated
+                'is_location_consolidated': segment.is_location_consolidated,
+                'dependency_segment_ids': json.dumps(segment.dependency_segment_ids if segment.dependency_segment_ids else []),
+                'edge_costs': json.dumps(segment.edge_costs if segment.edge_costs else {})
             }
             data.append(row)
 
@@ -328,7 +337,9 @@ def _add_export_methods():
                 'z': float(self.finish_location[2])
             },
             'location_distance_m': float(self.location_distance),
-            'is_location_consolidated': bool(self.is_location_consolidated)
+            'is_location_consolidated': bool(self.is_location_consolidated),
+            'dependency_segment_ids': self.dependency_segment_ids if self.dependency_segment_ids else [],
+            'edge_costs': self.edge_costs if self.edge_costs else {}
         }
 
     # Add methods to TaskSegmentResult class

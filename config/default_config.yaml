@@ -41,11 +41,51 @@ visualization:
   show_trajectories: true    # Camera and gaze paths
   show_point_cloud: true     # Static gaze point cloud
   show_analytics_plots: true # Time-series metric plots
-  
+
   # Visual styling
   color_by_state: true       # Color by gaze state
   color_by_metrics: false    # Color by computed metrics
-  
+
   # Performance
   max_points_displayed: 5000 # Limit for performance
   update_interval: 0.1       # Seconds between updates
+
+task_segmenter:
+  # Stability detection mode
+  stability_mode: "percentage"  # "strict" or "percentage"
+
+  # Optional criteria (all can be enabled/disabled)
+  require_spatial_stability: true
+  require_gaze_stability: true
+  require_hand_tracking: false
+
+  # Spatial stability criteria
+  spatial_stability_radius_m: 0.3
+  spatial_stability_min_duration_s: 1.0
+  stability_time_window_s: 1.5
+  stability_buffer_start_s: 0.5
+  stability_buffer_end_s: 0.5
+
+  # Gaze analysis parameters
+  gaze_deviation_threshold_deg: 20.0
+  focus_distance_threshold_m: 1.5
+  gaze_smoothing_window_s: 1.0
+  gaze_sampling_interval_s: 0.5
+  filtered_gaze_states: ["Blink", "Unknown"]
+
+  # Signal processing parameters
+  head_filter_alpha: 0.48
+  outlier_displacement_threshold_m: 1.5
+  outlier_time_window_ms: 100.0
+  outlier_speed_threshold_ms: 3.0
+
+  # Segment processing
+  merge_consecutive_gap_s: 1.5
+  location_consolidation_threshold_m: 0.5
+  min_segment_duration_s: 1.0
+
+  # Percentage-based stability thresholds (only used when mode="percentage")
+  head_instability_threshold_percent: 20.0
+  gaze_instability_threshold_percent: 20.0
+  hand_untracked_threshold_percent: 20.0
+  min_samples_for_percentage_mode: 5

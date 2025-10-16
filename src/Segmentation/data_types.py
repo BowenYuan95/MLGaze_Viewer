@@ -1,7 +1,7 @@
 """Data type definitions for task-based session segmentation."""
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import numpy as np
 
 
@@ -26,8 +26,28 @@ class TaskSegmentResult:
     finish_location: np.ndarray       # [x, y, z] in Unity coordinates
     is_location_consolidated: bool    # True if distance < consolidation threshold
 
+    # DAG support for tracking dependencies between segments
+    dependency_segment_ids: Optional[List[str]] = None  # Parent segment IDs this depends on
+    edge_costs: Optional[Dict[str, Dict[str, float]]] = None  # Cost metrics per dependency edge
+
     def __post_init__(self):
         """Validate segment properties after creation."""
+        # Initialize DAG fields if None
+        if self.dependency_segment_ids is None:
+            self.dependency_segment_ids = []
+        if self.edge_costs is None:
+            self.edge_costs = {}
+
+        # Validate edge_costs keys match dependency_segment_ids
+        if self.edge_costs:
+            for parent_id in self.edge_costs.keys():
+                if parent_id not in self.dependency_segment_ids:
+                    raise ValueError(
+                        f"edge_costs key '{parent_id}' not found in dependency_segment_ids. "
+                        f"All edge_costs keys must correspond to entries in dependency_segment_ids."
+                    )
+
+        # Validate timestamp range
         if self.finish_timestamp <= self.start_timestamp:
             raise ValueError(f"Invalid timestamp range: {self.finish_timestamp} <= {self.start_timestamp}")
 
@@ -54,7 +74,7 @@ class TaskSegmentResult:
 @dataclass
 class SegmentationConfig:
     """Configuration parameters for task-based segmentation.
-    
+
     Contains all adjustable parameters for the segmentation algorithm.
     Values can be overridden via the global configuration system.
     """
@@ -62,7 +82,7 @@ class SegmentationConfig:
     require_spatial_stability: bool = True
     require_gaze_stability: bool = True
     require_hand_tracking: bool = False
-    
+
     # Spatial stability criteria
     spatial_stability_radius_m: float = 0.3
     spatial_stability_min_duration_s: float = 1.0
@@ -76,17 +96,26 @@ class SegmentationConfig:
     gaze_smoothing_window_s: float = 1.0
     gaze_sampling_interval_s: float = 0.5
     filtered_gaze_states: List[str] = None
-    
+
     # Signal processing parameters
     head_filter_alpha: float = 0.48
     outlier_displacement_threshold_m: float = 1.5
     outlier_time_window_ms: float = 100.0
     outlier_speed_threshold_ms: float = 3.0
-    
+
     # Segment processing
     merge_consecutive_gap_s: float = 1.5
     location_consolidation_threshold_m: float = 0.5
     min_segment_duration_s: float = 1.0
+
+    # Stability detection mode
+    stability_mode: str = "percentage"  # "strict" or "percentage"
+
+    # Percentage-based stability thresholds (only used when mode="percentage")
+    head_instability_threshold_percent: float = 20.0
+    gaze_instability_threshold_percent: float = 20.0
+    hand_untracked_threshold_percent: float = 20.0
+    min_samples_for_percentage_mode: int = 5
     
     def __post_init__(self):
         """Initialize default values and validate parameters."""
@@ -129,5 +158,10 @@ class SegmentationConfig:
             outlier_speed_threshold_ms=plugin_config.get('outlier_speed_threshold_ms', 3.0),
             merge_consecutive_gap_s=plugin_config.get('merge_consecutive_gap_s', 1.5),
             location_consolidation_threshold_m=plugin_config.get('location_consolidation_threshold_m', 0.5),
-            min_segment_duration_s=plugin_config.get('min_segment_duration_s', 1.0)
+            min_segment_duration_s=plugin_config.get('min_segment_duration_s', 1.0),
+            stability_mode=plugin_config.get('stability_mode', 'percentage'),
+            head_instability_threshold_percent=plugin_config.get('head_instability_threshold_percent', 20.0),
+            gaze_instability_threshold_percent=plugin_config.get('gaze_instability_threshold_percent', 20.0),
+            hand_untracked_threshold_percent=plugin_config.get('hand_untracked_threshold_percent', 20.0),
+            min_samples_for_percentage_mode=plugin_config.get('min_samples_for_percentage_mode', 5)
         )
