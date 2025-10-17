@@ -77,7 +77,8 @@ class VisualizationConfig:
         "fixation_detector",
         "Gaze3DHeatmap",
         "Gaze3DClustering",
-        "ObjectInstanceTracker"
+        "ObjectInstanceTracker",
+        "TaskSegmentationPlugin"
     ])
     
     plugin_configs: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {

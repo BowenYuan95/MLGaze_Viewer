@@ -629,7 +629,13 @@ class MLGazeConfigApp(App):
                 value="0.4",
                 id="instance_box_opacity"
             )
-    
+
+        # Task Segmentation Section
+        yield Static("Task Segmentation", classes="section-title")
+        with Container(classes="section-content"):
+            yield Checkbox("Enable Task Segmentation", value=True, id="enable_task_segmentation")
+            yield Static("Task segmentation parameters are configured in task_segmenter section of config.yaml")
+
     def _create_gaze_state_filter_section(self):
         """Create the gaze state filter configuration section."""
         yield Static("Gaze State Filtering", classes="section-title")
@@ -957,6 +963,11 @@ class MLGazeConfigApp(App):
             self.config.plugin_configs["ObjectInstanceTracker"]["show_3d_boxes"] = value
         elif checkbox_id == "instance_generate_reports":
             self.config.plugin_configs["ObjectInstanceTracker"]["generate_reports"] = value
+        elif checkbox_id == "enable_task_segmentation":
+            if "TaskSegmentationPlugin" in self.config.enabled_plugins and not value:
+                self.config.enabled_plugins.remove("TaskSegmentationPlugin")
+            elif "TaskSegmentationPlugin" not in self.config.enabled_plugins and value:
+                self.config.enabled_plugins.append("TaskSegmentationPlugin")
         elif checkbox_id == "enable_gaze_filter":
             # Apply filter enabled state to spatial plugins
             self.config.plugin_configs["Gaze3DHeatmap"]["filter_enabled"] = value

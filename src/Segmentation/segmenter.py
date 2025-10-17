@@ -290,8 +290,8 @@ class TaskSegmenter:
             return False
 
         # Check gaze deviation between consecutive samples
-        if all(col in window_gaze.columns for col in ['dirX', 'dirY', 'dirZ']):
-            directions = window_gaze[['dirX', 'dirY', 'dirZ']].values
+        if all(col in window_gaze.columns for col in ['gazeDirectionX', 'gazeDirectionY', 'gazeDirectionZ']):
+            directions = window_gaze[['gazeDirectionX', 'gazeDirectionY', 'gazeDirectionZ']].values
 
             for i in range(len(directions) - 1):
                 deviation = calculate_gaze_deviation_degrees(
@@ -312,9 +312,9 @@ class TaskSegmenter:
 
                 if camera_pos is not None:
                     # Calculate focus point from gaze origin and direction
-                    if all(col in gaze_row for col in ['originX', 'originY', 'originZ']):
+                    if all(col in gaze_row for col in ['gazeOriginX', 'gazeOriginY', 'gazeOriginZ']):
                         gaze_origin = np.array([
-                            gaze_row['originX'], gaze_row['originY'], gaze_row['originZ']
+                            gaze_row['gazeOriginX'], gaze_row['gazeOriginY'], gaze_row['gazeOriginZ']
                         ])
 
                         # Calculate distance from head to gaze origin
@@ -410,14 +410,14 @@ class TaskSegmenter:
         if len(window_gaze) < 2:
             return 100.0  # Not enough data = 100% unstable
 
-        if not all(col in window_gaze.columns for col in ['dirX', 'dirY', 'dirZ']):
+        if not all(col in window_gaze.columns for col in ['gazeDirectionX', 'gazeDirectionY', 'gazeDirectionZ']):
             return 100.0
 
         unstable_count = 0
         total_checks = 0
 
         # Check gaze deviation between CONSECUTIVE samples
-        directions = window_gaze[['dirX', 'dirY', 'dirZ']].values
+        directions = window_gaze[['gazeDirectionX', 'gazeDirectionY', 'gazeDirectionZ']].values
         for i in range(len(directions) - 1):
             deviation = calculate_gaze_deviation_degrees(
                 directions[i], directions[i + 1]
@@ -436,9 +436,9 @@ class TaskSegmenter:
                 )
 
                 if camera_pos is not None:
-                    if all(col in gaze_row for col in ['originX', 'originY', 'originZ']):
+                    if all(col in gaze_row for col in ['gazeOriginX', 'gazeOriginY', 'gazeOriginZ']):
                         gaze_origin = np.array([
-                            gaze_row['originX'], gaze_row['originY'], gaze_row['originZ']
+                            gaze_row['gazeOriginX'], gaze_row['gazeOriginY'], gaze_row['gazeOriginZ']
                         ])
 
                         focus_distance = np.linalg.norm(gaze_origin - camera_pos)

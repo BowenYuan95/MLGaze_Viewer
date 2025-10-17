@@ -89,3 +89,10 @@ task_segmenter:
   gaze_instability_threshold_percent: 20.0
   hand_untracked_threshold_percent: 20.0
   min_samples_for_percentage_mode: 5
+
+# Plugin configurations
+plugin_configs:
+  # Task Segmentation Plugin
+  TaskSegmentationPlugin:
+    enabled: true
+    # Plugin uses task_segmenter config above for segmentation parameters

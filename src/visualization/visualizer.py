@@ -237,8 +237,26 @@ class RerunVisualizer:
             manager.register_plugin(plugin)
         
         # Execute plugins in dependency order
-        results = manager.execute_plugins(session, self.config.to_dict())
-        
+        # Load YAML config to get task_segmenter and other plugin-specific configs
+        import yaml
+        from pathlib import Path
+
+        config_dict = self.config.to_dict()
+
+        # Try to load the YAML config file to get task_segmenter section
+        yaml_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.yaml"
+        if yaml_config_path.exists():
+            try:
+                with open(yaml_config_path, 'r') as f:
+                    yaml_config = yaml.safe_load(f)
+                # Merge task_segmenter section if it exists
+                if 'task_segmenter' in yaml_config:
+                    config_dict['task_segmenter'] = yaml_config['task_segmenter']
+            except Exception as e:
+                self.logger.warning(f"Could not load YAML config: {e}")
+
+        results = manager.execute_plugins(session, config_dict)
+
         return results
     
     def _visualize_sensors(self, session: SessionData) -> None:
