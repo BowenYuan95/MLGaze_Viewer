@@ -112,9 +112,9 @@ class SegmentationConfig:
     stability_mode: str = "percentage"  # "strict" or "percentage"
 
     # Percentage-based stability thresholds (only used when mode="percentage")
-    head_instability_threshold_percent: float = 5.0
-    gaze_instability_threshold_percent: float = 5.0
-    hand_untracked_threshold_percent: float = 5.0
+    head_instability_threshold_percent: float = 20.0
+    gaze_instability_threshold_percent: float = 20.0
+    hand_untracked_threshold_percent: float = 20.0
     min_samples_for_percentage_mode: int = 5
     
     def __post_init__(self):
