@@ -92,8 +92,8 @@ class SegmentationConfig:
 
     # Gaze analysis parameters
     gaze_deviation_threshold_deg: float = 20.0
-    focus_distance_threshold_m: float = 1.5
-    gaze_smoothing_window_s: float = 1.0
+    focus_distance_threshold_m: float = 1.0
+    gaze_smoothing_window_s: float = 1.5
     gaze_sampling_interval_s: float = 0.5
     filtered_gaze_states: List[str] = None
 
@@ -148,8 +148,8 @@ class SegmentationConfig:
             stability_buffer_start_s=plugin_config.get('stability_buffer_start_s', 0.5),
             stability_buffer_end_s=plugin_config.get('stability_buffer_end_s', 0.5),
             gaze_deviation_threshold_deg=plugin_config.get('gaze_deviation_threshold_deg', 20.0),
-            focus_distance_threshold_m=plugin_config.get('focus_distance_threshold_m', 1.5),
-            gaze_smoothing_window_s=plugin_config.get('gaze_smoothing_window_s', 1.0),
+            focus_distance_threshold_m=plugin_config.get('focus_distance_threshold_m', 1.0),
+            gaze_smoothing_window_s=plugin_config.get('gaze_smoothing_window_s', 1.5),
             gaze_sampling_interval_s=plugin_config.get('gaze_sampling_interval_s', 0.5),
             filtered_gaze_states=plugin_config.get('filtered_gaze_states', ["Blink", "Unknown"]),
             head_filter_alpha=plugin_config.get('head_filter_alpha', 0.48),
