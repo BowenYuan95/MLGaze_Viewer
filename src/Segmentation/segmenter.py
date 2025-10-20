@@ -92,9 +92,17 @@ class TaskSegmenter:
         merged_segments = self._merge_segments(buffered_segments)
 
         # Step 9: Consolidate locations
-        final_segments = self._consolidate_locations(merged_segments)
+        consolidated_segments = self._consolidate_locations(merged_segments)
 
-        # Step 10: Generate results with proper IDs
+        # Step 10: Refine boundaries using gaze transitions (optional)
+        if self.config.enable_gaze_boundary_refinement and gaze_data is not None:
+            final_segments = self._refine_segment_boundaries(
+                consolidated_segments, gaze_data, positions, timestamps
+            )
+        else:
+            final_segments = consolidated_segments
+
+        # Step 11: Generate results with proper IDs
         return self._generate_results(final_segments)
 
     def _validate_session_data(self, session_data) -> bool:
@@ -638,12 +646,250 @@ class TaskSegmenter:
 
         return consolidated
 
+    def _detect_gaze_transitions(self,
+                                  gaze_data: pd.DataFrame,
+                                  start_ts: int,
+                                  end_ts: int,
+                                  boundary_type: str = "start") -> Tuple[bool, int]:
+        """Detect gaze transition periods at segment boundaries.
+
+        Args:
+            gaze_data: Gaze dataframe with timestamp, direction, origin columns
+            start_ts: Search window start timestamp (nanoseconds)
+            end_ts: Search window end timestamp (nanoseconds)
+            boundary_type: "start" or "end" - which boundary we're analyzing
+
+        Returns:
+            Tuple of (is_transition_detected, stable_timestamp)
+            - is_transition_detected: True if unstable gaze detected
+            - stable_timestamp: First/last stable timestamp in window
+        """
+        # Get gaze samples in search window
+        window_gaze = gaze_data[
+            (gaze_data['timestamp'] >= start_ts) &
+            (gaze_data['timestamp'] <= end_ts)
+        ].copy()
+
+        if len(window_gaze) < 2:
+            return False, start_ts if boundary_type == "start" else end_ts
+
+        # Convert to nanoseconds for consistency
+        bin_size_ns = int(self.config.saccade_detection_bin_s * 1e9)
+
+        # Create time bins
+        min_ts = window_gaze['timestamp'].min()
+        max_ts = window_gaze['timestamp'].max()
+        bins = np.arange(min_ts, max_ts + bin_size_ns, bin_size_ns)
+
+        # Analyze each bin for instability
+        bin_is_unstable = []
+
+        for i in range(len(bins) - 1):
+            bin_start = bins[i]
+            bin_end = bins[i + 1]
+
+            bin_samples = window_gaze[
+                (window_gaze['timestamp'] >= bin_start) &
+                (window_gaze['timestamp'] < bin_end)
+            ]
+
+            if len(bin_samples) < 2:
+                bin_is_unstable.append(False)
+                continue
+
+            # Check 1: High-frequency saccades
+            saccade_count = 0
+            directions = bin_samples[['gazeDirectionX', 'gazeDirectionY', 'gazeDirectionZ']].values
+
+            for j in range(len(directions) - 1):
+                deviation = calculate_gaze_deviation_degrees(directions[j], directions[j+1])
+                if deviation > self.config.saccade_threshold_deg:
+                    saccade_count += 1
+
+            # Check 2: Focus distance variability
+            if 'gazeOriginX' in bin_samples.columns:
+                origins = bin_samples[['gazeOriginX', 'gazeOriginY', 'gazeOriginZ']].values
+                focus_distances = np.linalg.norm(origins, axis=1)
+                focus_std = np.std(focus_distances) if len(focus_distances) > 1 else 0.0
+
+                # Check for absolute focus shift
+                focus_shift = np.max(focus_distances) - np.min(focus_distances) if len(focus_distances) > 1 else 0.0
+            else:
+                focus_std = 0.0
+                focus_shift = 0.0
+
+            # Bin is unstable if either criterion is met
+            is_unstable = (
+                saccade_count >= self.config.saccade_rate_threshold or
+                focus_std > self.config.focus_transition_threshold_m or
+                focus_shift > self.config.min_focus_shift_m
+            )
+
+            bin_is_unstable.append(is_unstable)
+
+        # Find transition boundaries
+        # For START: we want to find where instability ENDS (last unstable bin before stability)
+        # For END: we want to find where instability BEGINS (first unstable bin after stability)
+
+        if boundary_type == "start":
+            # Search forward from start to find last unstable bin
+            last_unstable_idx = -1
+            for i, unstable in enumerate(bin_is_unstable):
+                if unstable:
+                    last_unstable_idx = i
+                else:
+                    # Found stable bin after unstable period
+                    if last_unstable_idx >= 0:
+                        # Return end of last unstable bin (transition detected)
+                        return True, bins[last_unstable_idx + 1]
+                    # Stable from the start
+                    return False, start_ts
+
+            # All unstable or ended in unstable
+            if last_unstable_idx >= 0:
+                return True, bins[last_unstable_idx + 1]
+            return False, start_ts
+
+        else:  # end
+            # Search backward from end to find first unstable bin
+            first_unstable_idx = -1
+            for i in range(len(bin_is_unstable) - 1, -1, -1):
+                if bin_is_unstable[i]:
+                    first_unstable_idx = i
+                else:
+                    # Found stable bin before unstable period
+                    if first_unstable_idx >= 0:
+                        # Return start of first unstable bin (transition detected)
+                        return True, bins[first_unstable_idx]
+                    # Stable until the end
+                    return False, end_ts
+
+            # All unstable or started with unstable
+            if first_unstable_idx >= 0:
+                return True, bins[first_unstable_idx]
+            return False, end_ts
+
+    def _refine_segment_boundaries(self,
+                                   segments: List[Tuple[int, int, np.ndarray, np.ndarray, bool]],
+                                   gaze_data: pd.DataFrame,
+                                   positions: np.ndarray,
+                                   timestamps: np.ndarray) -> List[Tuple[int, int, np.ndarray, np.ndarray, bool, Dict]]:
+        """Refine segment boundaries by trimming gaze transition periods.
+
+        Args:
+            segments: List of initial segments (start_ts, end_ts, start_pos, end_pos, is_consolidated)
+            gaze_data: Gaze dataframe for transition detection
+            positions: Camera positions array
+            timestamps: Camera timestamps array
+
+        Returns:
+            List of refined segments with refinement metadata
+            (start_ts, end_ts, start_pos, end_pos, is_consolidated, metadata_dict)
+        """
+        if gaze_data is None or gaze_data.empty:
+            # No gaze data - return segments unchanged with empty metadata
+            return [(start, end, start_pos, end_pos, cons, {})
+                    for start, end, start_pos, end_pos, cons in segments]
+
+        refined_segments = []
+        search_window_ns = int(self.config.transition_search_window_s * 1e9)
+
+        for original_start, original_end, _, _, is_consolidated in segments:
+            original_duration = original_end - original_start
+
+            # Define search windows INSIDE the segment
+            # We search inward from the boundaries to find where stability begins/ends
+            start_search_begin = original_start
+            start_search_end = min(original_start + search_window_ns, original_end)
+
+            end_search_begin = max(original_end - search_window_ns, original_start)
+            end_search_end = original_end
+
+            # Detect transitions
+            # For start: find where instability ends (trim from start to this point)
+            start_transition, refined_start = self._detect_gaze_transitions(
+                gaze_data, start_search_begin, start_search_end, "start"
+            )
+
+            # For end: find where instability begins (trim from this point to end)
+            end_transition, refined_end = self._detect_gaze_transitions(
+                gaze_data, end_search_begin, end_search_end, "end"
+            )
+
+            # Apply shrinking constraints
+            new_duration = refined_end - refined_start
+            shrink_amount = original_duration - new_duration
+            shrink_percent = (shrink_amount / original_duration) * 100 if original_duration > 0 else 0
+
+            # Don't shrink too much
+            if shrink_percent > self.config.max_shrink_percent:
+                # Proportionally reduce the trimming
+                allowed_shrink = (self.config.max_shrink_percent / 100.0) * original_duration
+                excess_shrink = shrink_amount - allowed_shrink
+
+                # Distribute excess back proportionally
+                start_trim = original_start - refined_start
+                end_trim = refined_end - original_end
+                total_trim = start_trim + abs(end_trim)
+
+                if total_trim > 0:
+                    start_reduction = int((start_trim / total_trim) * excess_shrink)
+                    end_reduction = int((abs(end_trim) / total_trim) * excess_shrink)
+
+                    refined_start = original_start - (start_trim - start_reduction)
+                    refined_end = original_end + (abs(end_trim) - end_reduction)
+
+            # Ensure minimum duration
+            if (refined_end - refined_start) / 1e9 < self.config.min_stable_core_duration_s:
+                # Segment too short after refinement - keep original
+                refined_start = original_start
+                refined_end = original_end
+
+            # Get refined positions
+            refined_start_idx = np.argmin(np.abs(timestamps - refined_start))
+            refined_end_idx = np.argmin(np.abs(timestamps - refined_end))
+
+            refined_start_pos = positions[refined_start_idx]
+            refined_end_pos = positions[refined_end_idx]
+
+            # Calculate boundary confidence (0-1, higher = more confident)
+            # Based on whether transitions were detected
+            confidence = 0.5  # Baseline
+            if start_transition:
+                confidence += 0.25
+            if end_transition:
+                confidence += 0.25
+
+            # Create metadata
+            metadata = {
+                'original_start': original_start,
+                'original_end': original_end,
+                'trimmed_start_ns': refined_start - original_start,
+                'trimmed_end_ns': original_end - refined_end,
+                'confidence': confidence
+            }
+
+            refined_segments.append((
+                refined_start, refined_end,
+                refined_start_pos, refined_end_pos,
+                is_consolidated, metadata
+            ))
+
+        return refined_segments
+
     def _generate_results(self,
                         segments: List[Tuple[int, int, np.ndarray, np.ndarray, bool]]) -> List[TaskSegmentResult]:
         """Generate final TaskSegmentResult objects."""
         results = []
 
-        for i, (start_ts, end_ts, start_pos, end_pos, is_consolidated) in enumerate(segments):
+        for i, segment_data in enumerate(segments):
+            # Handle both old format (5-tuple) and new format (6-tuple with metadata)
+            if len(segment_data) == 6:
+                start_ts, end_ts, start_pos, end_pos, is_consolidated, metadata = segment_data
+            else:
+                start_ts, end_ts, start_pos, end_pos, is_consolidated = segment_data
+                metadata = {}
+
             segment_id = f"seg_task_{i+1:03d}"
             duration_ns = end_ts - start_ts
 
@@ -654,7 +900,12 @@ class TaskSegmenter:
                 duration_ns=duration_ns,
                 start_location=start_pos,
                 finish_location=end_pos,
-                is_location_consolidated=is_consolidated
+                is_location_consolidated=is_consolidated,
+                original_start_timestamp=metadata.get('original_start'),
+                original_finish_timestamp=metadata.get('original_end'),
+                trimmed_start_ns=metadata.get('trimmed_start_ns'),
+                trimmed_finish_ns=metadata.get('trimmed_end_ns'),
+                boundary_confidence=metadata.get('confidence')
             )
 
             results.append(result)

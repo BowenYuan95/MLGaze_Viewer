@@ -30,6 +30,13 @@ class TaskSegmentResult:
     dependency_segment_ids: Optional[List[str]] = None  # Parent segment IDs this depends on
     edge_costs: Optional[Dict[str, Dict[str, float]]] = None  # Cost metrics per dependency edge
 
+    # Gaze-based boundary refinement metadata (optional)
+    original_start_timestamp: Optional[int] = None  # Before refinement
+    original_finish_timestamp: Optional[int] = None  # Before refinement
+    trimmed_start_ns: Optional[int] = None  # Amount trimmed from start
+    trimmed_finish_ns: Optional[int] = None  # Amount trimmed from finish
+    boundary_confidence: Optional[float] = None  # 0-1 score based on gaze stability
+
     def __post_init__(self):
         """Validate segment properties after creation."""
         # Initialize DAG fields if None
@@ -116,6 +123,23 @@ class SegmentationConfig:
     gaze_instability_threshold_percent: float = 20.0
     hand_untracked_threshold_percent: float = 20.0
     min_samples_for_percentage_mode: int = 5
+
+    # Gaze-based boundary refinement
+    enable_gaze_boundary_refinement: bool = False  # Disabled by default
+    transition_search_window_s: float = 2.0  # How far from boundary to search
+
+    # Saccade detection (high-frequency scanning)
+    saccade_detection_bin_s: float = 0.2  # Time bin for counting saccades
+    saccade_threshold_deg: float = 5.0  # Deviation threshold for saccades
+    saccade_rate_threshold: int = 2  # Min saccades per bin = transition
+
+    # Focus distance transition detection
+    focus_transition_threshold_m: float = 0.3  # Std dev threshold
+    min_focus_shift_m: float = 0.5  # Min absolute shift between bins
+
+    # Shrinking constraints
+    min_stable_core_duration_s: float = 1.0  # Don't shrink below this
+    max_shrink_percent: float = 30.0  # Don't remove >30% of segment
     
     def __post_init__(self):
         """Initialize default values and validate parameters."""
@@ -163,5 +187,14 @@ class SegmentationConfig:
             head_instability_threshold_percent=plugin_config.get('head_instability_threshold_percent', 20.0),
             gaze_instability_threshold_percent=plugin_config.get('gaze_instability_threshold_percent', 20.0),
             hand_untracked_threshold_percent=plugin_config.get('hand_untracked_threshold_percent', 20.0),
-            min_samples_for_percentage_mode=plugin_config.get('min_samples_for_percentage_mode', 5)
+            min_samples_for_percentage_mode=plugin_config.get('min_samples_for_percentage_mode', 5),
+            enable_gaze_boundary_refinement=plugin_config.get('enable_gaze_boundary_refinement', False),
+            transition_search_window_s=plugin_config.get('transition_search_window_s', 2.0),
+            saccade_detection_bin_s=plugin_config.get('saccade_detection_bin_s', 0.2),
+            saccade_threshold_deg=plugin_config.get('saccade_threshold_deg', 5.0),
+            saccade_rate_threshold=plugin_config.get('saccade_rate_threshold', 2),
+            focus_transition_threshold_m=plugin_config.get('focus_transition_threshold_m', 0.3),
+            min_focus_shift_m=plugin_config.get('min_focus_shift_m', 0.5),
+            min_stable_core_duration_s=plugin_config.get('min_stable_core_duration_s', 1.0),
+            max_shrink_percent=plugin_config.get('max_shrink_percent', 30.0)
         )

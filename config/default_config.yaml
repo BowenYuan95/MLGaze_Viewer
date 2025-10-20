@@ -57,7 +57,7 @@ task_segmenter:
   # Optional criteria (all can be enabled/disabled)
   require_spatial_stability: true
   require_gaze_stability: true
-  require_hand_tracking: false
+  require_hand_tracking: true  # Enabled to include hand tracking in stability detection
 
   # Spatial stability criteria
   spatial_stability_radius_m: 0.3
@@ -68,7 +68,7 @@ task_segmenter:
 
   # Gaze analysis parameters
   gaze_deviation_threshold_deg: 20.0
-  focus_distance_threshold_m: 1.5
+  focus_distance_threshold_m: 5.0  # Increased to 5.0 for broader AR viewing distances
   gaze_smoothing_window_s: 1.0
   gaze_sampling_interval_s: 0.5
   filtered_gaze_states: ["Blink", "Unknown"]
