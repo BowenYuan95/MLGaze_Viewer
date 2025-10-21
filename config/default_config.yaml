@@ -90,9 +90,21 @@ task_segmenter:
   hand_untracked_threshold_percent: 20.0
   min_samples_for_percentage_mode: 5
 
+# Video export configuration
+video_export:
+  overlay_gaze: false          # Include gaze overlay in videos (default: false)
+  fps_override: null           # Override FPS (default: null = auto-detect)
+  codec: 'mp4v'                # Video codec (mp4v, H264, XVID, avc1)
+  cameras: null                # Specific cameras to export (default: null = all)
+
 # Plugin configurations
 plugin_configs:
   # Task Segmentation Plugin
   TaskSegmentationPlugin:
     enabled: true
     # Plugin uses task_segmenter config above for segmentation parameters
+
+  # Video Export Plugin
+  VideoExportPlugin:
+    enabled: true
+    # Plugin uses video_export config above for export parameters

@@ -636,6 +636,12 @@ class MLGazeConfigApp(App):
             yield Checkbox("Enable Task Segmentation", value=True, id="enable_task_segmentation")
             yield Static("Task segmentation parameters are configured in task_segmenter section of config.yaml")
 
+        # Video Export Section
+        yield Static("Video Export", classes="section-title")
+        with Container(classes="section-content"):
+            yield Checkbox("Enable Video Export", value=True, id="enable_video_export")
+            yield Static("Video export parameters are configured in video_export section of config.yaml")
+
     def _create_gaze_state_filter_section(self):
         """Create the gaze state filter configuration section."""
         yield Static("Gaze State Filtering", classes="section-title")
@@ -968,6 +974,11 @@ class MLGazeConfigApp(App):
                 self.config.enabled_plugins.remove("TaskSegmentationPlugin")
             elif "TaskSegmentationPlugin" not in self.config.enabled_plugins and value:
                 self.config.enabled_plugins.append("TaskSegmentationPlugin")
+        elif checkbox_id == "enable_video_export":
+            if "VideoExportPlugin" in self.config.enabled_plugins and not value:
+                self.config.enabled_plugins.remove("VideoExportPlugin")
+            elif "VideoExportPlugin" not in self.config.enabled_plugins and value:
+                self.config.enabled_plugins.append("VideoExportPlugin")
         elif checkbox_id == "enable_gaze_filter":
             # Apply filter enabled state to spatial plugins
             self.config.plugin_configs["Gaze3DHeatmap"]["filter_enabled"] = value

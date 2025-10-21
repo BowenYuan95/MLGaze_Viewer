@@ -78,7 +78,8 @@ class VisualizationConfig:
         "Gaze3DHeatmap",
         "Gaze3DClustering",
         "ObjectInstanceTracker",
-        "TaskSegmentationPlugin"
+        "TaskSegmentationPlugin",
+        "VideoExportPlugin"
     ])
     
     plugin_configs: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {

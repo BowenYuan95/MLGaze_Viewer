@@ -8,6 +8,7 @@ from .gaze_3d_heatmap import Gaze3DHeatmap
 from .gaze_3d_clustering import Gaze3DClustering
 from .object_instance_tracker import ObjectInstanceTracker
 from .task_segmentation import TaskSegmentationPlugin
+from .video_export import VideoExportPlugin
 
 __all__ = [
     "AnalyticsPlugin",
@@ -17,7 +18,8 @@ __all__ = [
     "Gaze3DHeatmap",
     "Gaze3DClustering",
     "ObjectInstanceTracker",
-    "TaskSegmentationPlugin"
+    "TaskSegmentationPlugin",
+    "VideoExportPlugin"
 ]
 
 
@@ -48,6 +50,8 @@ def load_plugins(plugin_names: list) -> list:
             plugins.append(ObjectInstanceTracker())
         elif name == "TaskSegmentationPlugin":
             plugins.append(TaskSegmentationPlugin())
+        elif name == "VideoExportPlugin":
+            plugins.append(VideoExportPlugin())
         # Add more plugins here as they are implemented
 
     return plugins
